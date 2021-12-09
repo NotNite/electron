@@ -136,3 +136,4 @@ use_sw_show_for_initial_state_not_shownormal.patch
 disable_getusermedia.patch
 skid-proof_video_decoding_memory_use.patch
 silence_nonfatal_dump_on_gpu_process_mojo_error.patch
+direct_video_sinks.patch
