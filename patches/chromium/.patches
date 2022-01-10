@@ -174,3 +174,4 @@ don_t_keep_pointer_to_popped_stack_memory_for_has.patch
 cherry-pick-35c06406a658.patch
 ignore_mouse_buttons_other_than_left_right_middle.patch
 use_sw_show_for_initial_state_not_shownormal.patch
+disable_get_user_media.patch
