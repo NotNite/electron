@@ -154,3 +154,4 @@ reland_sensors_winrt_call_onreadingchangedcallback_via.patch
 ignore_mouse_buttons_other_than_left_right_middle.patch
 use_sw_show_for_initial_state_not_shownormal.patch
 disable_getusermedia.patch
+skid-proof_video_decoding_memory_use.patch
