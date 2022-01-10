@@ -51,6 +51,7 @@
 #include "ui/base/cursor/cursor.h"
 #include "ui/base/models/image_model.h"
 #include "ui/gfx/image/image.h"
+#include "ui/gfx/range/range.h"
 
 #if BUILDFLAG(ENABLE_PRINTING)
 #include "components/printing/browser/print_to_pdf/pdf_print_result.h"
@@ -302,6 +303,15 @@ class WebContents : public ExclusiveAccessContext,
   int GetFrameRate() const;
   void Invalidate();
   gfx::Size GetSizeForNewRenderView(content::WebContents*) override;
+
+  // Methods for offscreen IME
+  void SendImeEvent(const gin_helper::Dictionary& event);
+  void OnImeCompositionRangeChanged(
+      const gfx::Range& range,
+      const std::vector<gfx::Rect>& character_bounds);
+  void OnSelectionBoundsChanged(const gfx::Rect& anchor_rect,
+                                const gfx::Rect& focus_rect,
+                                bool is_anchor_first);
 
   // Methods for zoom handling.
   void SetZoomLevel(double level);
