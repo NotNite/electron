@@ -1,0 +1,100 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mack Straight <mack@discordapp.com>
+Date: Tue, 1 Feb 2022 04:45:11 +0000
+Subject: add discord ffmpeg config options.
+
+changes:
+ - support gif decoder (video backgrounds)
+ - support hevc decoder (codec diversity)
+ - support mp4 muxer (clips)
+ - support file protocol (clips)
+ - add .sigs entries needed by clips
+
+diff --git a/chromium/ffmpeg.sigs b/chromium/ffmpeg.sigs
+index 4286e63aee1752b9750f1bfc6e94fbd7882d8062..b3806b7609ea7ddc01598abe32616e14506f0bf5 100644
+--- a/chromium/ffmpeg.sigs
++++ b/chromium/ffmpeg.sigs
+@@ -72,3 +72,51 @@ AVFrame *av_frame_clone(const AVFrame *src);
+ void av_frame_unref(AVFrame *frame);
+ void av_frame_free(AVFrame **frame);
+ AVFrame* av_frame_alloc();
++
++
++//------------------------------------------------
++// functions from avutil used in Discord Clips feature
++//------------------------------------------------
++int av_buffer_make_writable(AVBufferRef **buf);
++int av_channel_layout_copy(AVChannelLayout *dst, const AVChannelLayout *src);
++AVFrame *av_frame_alloc(void);
++int av_frame_get_buffer(AVFrame *frame, int align);
++int av_frame_make_writable(AVFrame *frame);
++void av_log_format_line(void *ptr, int level, const char *fmt, va_list vl, char *line, int line_size, int *print_prefix);
++void av_log_set_callback(void (*callback)(void*, int, const char*, va_list));
++void av_log_set_level(int level);
++AVDictionaryEntry *av_dict_get(const AVDictionary *m, const char *key, const AVDictionaryEntry *prev, int flags);
++int av_dict_set(AVDictionary **pm, const char *key, const char *value, int flags);
++void *av_realloc_f(void *ptr, size_t nelem, size_t elsize);
++
++
++//------------------------------------------------
++// functions from avformat used in Discord Clips feature
++//------------------------------------------------
++void av_dump_format(AVFormatContext *ic, int index, const char *url, int is_output);
++const AVOutputFormat *av_guess_format(const char *short_name, const char *filename, const char *mime_type);
++int av_interleaved_write_frame(AVFormatContext *s, AVPacket *pkt);
++int av_write_trailer(AVFormatContext *s);
++int avformat_alloc_output_context2(AVFormatContext **ctx, const AVOutputFormat *oformat, const char *format_name, const char *filename);
++void avformat_free_context(AVFormatContext *s);
++AVStream *avformat_new_stream(AVFormatContext *s, const AVCodec *c);
++int avformat_write_header(AVFormatContext *s, AVDictionary **options);
++int avio_close(AVIOContext *s);
++int avio_open(AVIOContext **s, const char *url, int flags);
++
++
++//------------------------------------------------
++// functions from avcodec used in Discord Clips feature
++//------------------------------------------------
++int av_new_packet(AVPacket *pkt, int size);
++AVPacket *av_packet_alloc(void);
++void av_packet_free(AVPacket **pkt);
++void av_packet_rescale_ts(AVPacket *pkt, AVRational tb_src, AVRational tb_dst);
++void av_packet_unref(AVPacket *pkt);
++AVCodecContext *avcodec_alloc_context3(const AVCodec *codec);
++const AVCodec *avcodec_find_encoder(enum AVCodecID id);
++int avcodec_open2(AVCodecContext *avctx, const AVCodec *codec, AVDictionary **options);
++int avcodec_receive_packet(AVCodecContext *avctx, AVPacket *avpkt);
++int avcodec_send_frame(AVCodecContext *avctx, const AVFrame *frame);
++int av_packet_ref(AVPacket *dst, const AVPacket *src);
++int avcodec_parameters_copy(AVCodecParameters *dst, const AVCodecParameters *src);
+diff --git a/chromium/scripts/build_ffmpeg.py b/chromium/scripts/build_ffmpeg.py
+index 7d3f707e52b759a6b4b7e9c680875cdfa2d6b775..72c843b233b3e85b0095d307489b177b610477ed 100755
+--- a/chromium/scripts/build_ffmpeg.py
++++ b/chromium/scripts/build_ffmpeg.py
+@@ -711,9 +711,9 @@ def ConfigureAndBuild(target_arch, target_os, host_os, host_arch, parallel_jobs,
+       # Common codecs.
+       '--enable-decoder=vorbis,libopus,flac',
+       '--enable-decoder=pcm_u8,pcm_s16le,pcm_s24le,pcm_s32le,pcm_f32le,mp3',
+-      '--enable-decoder=pcm_s16be,pcm_s24be,pcm_mulaw,pcm_alaw',
+-      '--enable-demuxer=ogg,matroska,wav,flac,mp3,mov',
+-      '--enable-parser=opus,vorbis,flac,mpegaudio,vp9',
++      '--enable-decoder=pcm_s16be,pcm_s24be,pcm_mulaw,pcm_alaw,gif',
++      '--enable-demuxer=ogg,matroska,wav,flac,mp3,mov,gif',
++      '--enable-parser=opus,vorbis,flac,mpegaudio,vp9,gif',
+ 
+       # Setup include path so Chromium's libopus can be used.
+       '--extra-cflags=-I' + os.path.join(CHROMIUM_ROOT_DIR,
+@@ -1014,9 +1014,12 @@ def ConfigureAndBuild(target_arch, target_os, host_os, host_arch, parallel_jobs,
+ 
+   # Google Chrome & ChromeOS specific configuration.
+   configure_flags['Chrome'].extend([
+-      '--enable-decoder=aac,h264',
++      '--enable-decoder=aac,h264,hevc',
+       '--enable-demuxer=aac',
+-      '--enable-parser=aac,h264',
++      '--enable-parser=aac,h264,hevc',
++      '--enable-muxer=mp4',
++      '--enable-encoder=aac',
++      '--enable-protocol=file',
+   ])
+ 
+   # Google ChromeOS specific configuration.
