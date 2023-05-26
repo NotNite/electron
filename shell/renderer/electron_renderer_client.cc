@@ -143,12 +143,33 @@ void ElectronRendererClient::WillReleaseScriptContext(
   DCHECK_EQ(v8::MicrotasksScope::GetCurrentDepth(isolate), 0);
   isolate->SetMicrotasksPolicy(v8::MicrotasksPolicy::kExplicit);
 
+  // Hack workaround(markh): Mark all other environments to _not_ call into js
+  // to avoid problems with the shared isolate and uv_loop structures shared
+  // by this same environment we're trying to cleanup.
+  // During this environment cleanup the uv_loop is run, where possible tasks
+  // from other environments that share the loop might also try to run. Our
+  // call stack will have setup v8 to disable JS, so we need to signal to the
+  // other environments not to attempt to run any JS.
+  // The downside here is that any of those tasks that happen to be present in
+  // the uv_loop at the time will effectively no-op and get dropped.
+  // Note: We re-enable this flag after cleanup has completed below.
+  for (auto* otherEnv : environments_) {
+    otherEnv->set_can_call_into_js(false);
+  }
+
+  //
   node::FreeEnvironment(env);
   if (node_bindings_->uv_env() == nullptr) {
     node::FreeIsolateData(node_bindings_->isolate_data());
     node_bindings_->set_isolate_data(nullptr);
   }
 
+  // Hack workaround(markh): Re-setup JS callbacks for other environments
+  for (auto* otherEnv : environments_) {
+    otherEnv->set_can_call_into_js(true);
+  }
+
+  //
   isolate->SetMicrotasksPolicy(old_policy);
 
   // ElectronBindings is tracking node environments.
