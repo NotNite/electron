@@ -1,0 +1,21 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mark Harmer <mark.harmer@discordapp.com>
+Date: Fri, 23 Jun 2023 11:29:42 -0700
+Subject: Workaround for idl_lexer failure when generating C++ from
+ cryptotoken_private.idl, seems to be related to CRLF
+
+
+diff --git a/ppapi/generators/idl_lexer.py b/ppapi/generators/idl_lexer.py
+index 6de38b302f8ac23e8d2e50b69867cc9e7d90f415..93abe3c588f27e63ac0a3d91a229f73ce9bca0c2 100755
+--- a/ppapi/generators/idl_lexer.py
++++ b/ppapi/generators/idl_lexer.py
+@@ -205,6 +205,9 @@ class IDLLexer(object):
+         self.SourceLine(file, line, pos))
+ 
+   def SetData(self, filename, data):
++    # Replace all CRLF with LF, this lexer only supports LF
++    data = data.replace('\r\n', '\n')
++
+     # Start with line 1, not zero
+     self.lexobj.lineno = 1
+     self.lexobj.filename = filename
