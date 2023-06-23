@@ -1,0 +1,40 @@
+From cd6302e46478a01c7279cab0a558107693a52be9 Mon Sep 17 00:00:00 2001
+From: Brandon Ho <brandon.ho@discordapp.com>
+Date: Wed, 21 Jun 2023 14:14:04 -0700
+Subject: [PATCH] add functions used in ClipsExporter
+
+---
+ chromium/ffmpeg.sigs | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/chromium/ffmpeg.sigs b/chromium/ffmpeg.sigs
+index 563dcafe37..6170b8fcaf 100755
+--- a/chromium/ffmpeg.sigs
++++ b/chromium/ffmpeg.sigs
+@@ -46,7 +46,6 @@ int avio_close(AVIOContext *s);
+ int64_t av_stream_get_first_dts(const AVStream *st);
+ uint8_t *av_stream_get_side_data(const AVStream *stream, enum AVPacketSideDataType type, size_t *size);
+ 
+-
+ //------------------------------------------------
+ // Functions from avutil used in chromium code.
+ //------------------------------------------------
+@@ -84,6 +83,9 @@ int av_frame_make_writable(AVFrame *frame);
+ void av_log_format_line(void *ptr, int level, const char *fmt, va_list vl, char *line, int line_size, int *print_prefix);
+ void av_log_set_callback(void (*callback)(void*, int, const char*, va_list));
+ void av_log_set_level(int level);
++AVDictionaryEntry *av_dict_get(const AVDictionary *m, const char *key, const AVDictionaryEntry *prev, int flags);
++int av_dict_set(AVDictionary **pm, const char *key, const char *value, int flags);
++void *av_realloc_f(void *ptr, size_t nelem, size_t elsize);
+ 
+ 
+ //------------------------------------------------
+@@ -114,3 +116,5 @@ const AVCodec *avcodec_find_encoder(enum AVCodecID id);
+ int avcodec_open2(AVCodecContext *avctx, const AVCodec *codec, AVDictionary **options);
+ int avcodec_receive_packet(AVCodecContext *avctx, AVPacket *avpkt);
+ int avcodec_send_frame(AVCodecContext *avctx, const AVFrame *frame);
++int av_packet_ref(AVPacket *dst, const AVPacket *src);
++int avcodec_parameters_copy(AVCodecParameters *dst, const AVCodecParameters *src);
+-- 
+2.40.0
+
