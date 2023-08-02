@@ -1,0 +1,324 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Di Zhang <dizhangg@chromium.org>
+Date: Fri, 24 Feb 2023 20:29:52 +0000
+Subject: File input type should fire cancel event if no selection change
+
+See html spec [1] [2]. If the file upload selection for input type=file
+is unchanged, we should fire the cancel event with bubbles true.
+
+[1] https://html.spec.whatwg.org/#show-the-picker,-if-applicable
+[2] https://github.com/whatwg/html/pull/6735
+
+Change-Id: I8fb0307df75c58c17ff1d180071cd77634a08a65
+Fixed: 1227424
+Reviewed-on: https://chromium-review.googlesource.com/c/chromium/src/+/4048886
+Commit-Queue: Di Zhang <dizhangg@chromium.org>
+Reviewed-by: David Baron <dbaron@chromium.org>
+Cr-Commit-Position: refs/heads/main@{#1109778}
+
+diff --git a/third_party/blink/renderer/core/html/forms/file_chooser.cc b/third_party/blink/renderer/core/html/forms/file_chooser.cc
+index 730ca8cd9fa3aac7b7df4ee4e44b9a0621ae6be8..51ac05a1538aedc870a2ef1471f71dc9d01e60ed 100644
+--- a/third_party/blink/renderer/core/html/forms/file_chooser.cc
++++ b/third_party/blink/renderer/core/html/forms/file_chooser.cc
+@@ -110,34 +110,11 @@ void FileChooser::EnumerateChosenDirectory() {
+ }
+ 
+ void FileChooser::DidChooseFiles(mojom::blink::FileChooserResultPtr result) {
+-  // TODO(tkent): If |result| is nullptr, we should not clear the
++  // TODO(crbug.com/1418799): If |result| is nullptr, we should not clear the
+   // already-selected files in <input type=file> like other browsers.
+   FileChooserFileInfoList files;
+   if (result)
+     files = std::move(result->files);
+-  // FIXME: This is inelegant. We should not be looking at params_ here.
+-  if (params_->selected_files.size() == files.size()) {
+-    bool was_changed = false;
+-    for (unsigned i = 0; i < files.size(); ++i) {
+-      // TODO(tkent): If a file system URL was already selected, and new
+-      // chooser session selects the same one, a |change| event is
+-      // dispatched unexpectedly.
+-      // |selected_files| is created by FileList::
+-      // PathsForUserVisibleFiles(), and it returns File::name() for
+-      // file system URLs. Comparing File::name() doesn't make
+-      // sense. We should compare file system URLs.
+-      if (!files[i]->is_native_file() ||
+-          params_->selected_files[i] !=
+-              files[i]->get_native_file()->file_path) {
+-        was_changed = true;
+-        break;
+-      }
+-    }
+-    if (!was_changed) {
+-      DidCloseChooser();
+-      return;
+-    }
+-  }
+ 
+   if (client_) {
+     client_->FilesChosen(std::move(files),
+diff --git a/third_party/blink/renderer/core/html/forms/file_input_type.cc b/third_party/blink/renderer/core/html/forms/file_input_type.cc
+index a8328e8ab2f7aa32a808a71530aa97536c55ef99..a4a1e790b8a62197e029abda50d888734707a610 100644
+--- a/third_party/blink/renderer/core/html/forms/file_input_type.cc
++++ b/third_party/blink/renderer/core/html/forms/file_input_type.cc
+@@ -419,8 +419,11 @@ void FileInputType::SetFilesAndDispatchEvents(FileList* files) {
+     GetElement().DispatchInputEvent();
+     GetElement().DispatchChangeEvent();
+     if (AXObjectCache* cache =
+-            GetElement().GetDocument().ExistingAXObjectCache())
++            GetElement().GetDocument().ExistingAXObjectCache()) {
+       cache->HandleValueChanged(&GetElement());
++    }
++  } else {
++    GetElement().DispatchCancelEvent();
+   }
+ }
+ 
+diff --git a/third_party/blink/renderer/core/html/forms/file_input_type_test.cc b/third_party/blink/renderer/core/html/forms/file_input_type_test.cc
+index bf6711cc60d728aa768e40709d0f6f07f274fdcd..e0a67020e72c9703ddee54a3ae7704e3ddf2b073 100644
+--- a/third_party/blink/renderer/core/html/forms/file_input_type_test.cc
++++ b/third_party/blink/renderer/core/html/forms/file_input_type_test.cc
+@@ -21,6 +21,7 @@
+ #include "third_party/blink/renderer/core/page/drag_data.h"
+ #include "third_party/blink/renderer/core/testing/dummy_page_holder.h"
+ #include "third_party/blink/renderer/core/testing/null_execution_context.h"
++#include "third_party/blink/renderer/core/testing/wait_for_event.h"
+ #include "third_party/blink/renderer/platform/file_metadata.h"
+ #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
+ #include "third_party/blink/renderer/platform/wtf/date_math.h"
+@@ -29,6 +30,13 @@ namespace blink {
+ 
+ namespace {
+ 
++class MockEventListener final : public NativeEventListener {
++ public:
++  bool invoked = false;
++  void Invoke(ExecutionContext*, Event*) override { invoked = true; }
++  void ClearInvoked() { invoked = false; }
++};
++
+ class WebKitDirectoryChromeClient : public EmptyChromeClient {
+  public:
+   void RegisterPopupOpeningObserver(PopupOpeningObserver*) override {
+@@ -235,4 +243,195 @@ TEST(FileInputTypeTest, ChangeTypeDuringOpeningFileChooser) {
+       input.UserAgentShadowRoot()->firstChild()->firstChild()));
+ }
+ 
++// Tests selecting same file twice should fire cancel event second time.
++TEST(FileInputTypeTest, SetFilesFireCorrectEventsForSameFile) {
++  ScopedNullExecutionContext execution_context;
++
++  auto* document =
++      Document::CreateForTest(execution_context.GetExecutionContext());
++  auto* input =
++      MakeGarbageCollected<HTMLInputElement>(*document, CreateElementFlags());
++  InputType* file_input = MakeGarbageCollected<FileInputType>(*input);
++  auto* listener_change = MakeGarbageCollected<MockEventListener>();
++  auto* listener_cancel = MakeGarbageCollected<MockEventListener>();
++  input->addEventListener(event_type_names::kChange, listener_change);
++  input->addEventListener(event_type_names::kCancel, listener_cancel);
++  auto reset = [&] {
++    listener_change->ClearInvoked();
++    listener_cancel->ClearInvoked();
++  };
++
++  auto* const selection_1 = MakeGarbageCollected<FileList>();
++  selection_1->Append(MakeGarbageCollected<File>("/path/to/A.txt"));
++  file_input->SetFilesAndDispatchEvents(selection_1);
++  EXPECT_TRUE(listener_change->invoked);
++  EXPECT_FALSE(listener_cancel->invoked);
++
++  reset();
++  auto* const selection_2 = MakeGarbageCollected<FileList>();
++  selection_2->Append(MakeGarbageCollected<File>("/path/to/A.txt"));
++  file_input->SetFilesAndDispatchEvents(selection_2);
++  EXPECT_FALSE(listener_change->invoked);
++  EXPECT_TRUE(listener_cancel->invoked);
++}
++
++// Tests selecting same files twice should fire cancel event second time.
++TEST(FileInputTypeTest, SetFilesFireCorrectEventsForSameFiles) {
++  ScopedNullExecutionContext execution_context;
++
++  auto* document =
++      Document::CreateForTest(execution_context.GetExecutionContext());
++  auto* input =
++      MakeGarbageCollected<HTMLInputElement>(*document, CreateElementFlags());
++  InputType* file_input = MakeGarbageCollected<FileInputType>(*input);
++  auto* listener_change = MakeGarbageCollected<MockEventListener>();
++  auto* listener_cancel = MakeGarbageCollected<MockEventListener>();
++  input->addEventListener(event_type_names::kChange, listener_change);
++  input->addEventListener(event_type_names::kCancel, listener_cancel);
++  input->SetBooleanAttribute(html_names::kMultipleAttr, true);
++  auto reset = [&] {
++    listener_change->ClearInvoked();
++    listener_cancel->ClearInvoked();
++  };
++
++  auto* const selection_1 = MakeGarbageCollected<FileList>();
++  selection_1->Append(MakeGarbageCollected<File>("/path/to/A.txt"));
++  selection_1->Append(MakeGarbageCollected<File>("/path/to/B.txt"));
++  file_input->SetFilesAndDispatchEvents(selection_1);
++  EXPECT_TRUE(listener_change->invoked);
++  EXPECT_FALSE(listener_cancel->invoked);
++
++  reset();
++  auto* const selection_2 = MakeGarbageCollected<FileList>();
++  selection_2->Append(MakeGarbageCollected<File>("/path/to/A.txt"));
++  selection_2->Append(MakeGarbageCollected<File>("/path/to/B.txt"));
++  file_input->SetFilesAndDispatchEvents(selection_2);
++  EXPECT_FALSE(listener_change->invoked);
++  EXPECT_TRUE(listener_cancel->invoked);
++}
++
++// Tests selecting different file after first selection should fire change
++// event.
++TEST(FileInputTypeTest, SetFilesFireCorrectEventsForDifferentFile) {
++  ScopedNullExecutionContext execution_context;
++
++  auto* document =
++      Document::CreateForTest(execution_context.GetExecutionContext());
++  auto* input =
++      MakeGarbageCollected<HTMLInputElement>(*document, CreateElementFlags());
++  InputType* file_input = MakeGarbageCollected<FileInputType>(*input);
++  auto* listener_change = MakeGarbageCollected<MockEventListener>();
++  auto* listener_cancel = MakeGarbageCollected<MockEventListener>();
++  input->addEventListener(event_type_names::kChange, listener_change);
++  input->addEventListener(event_type_names::kCancel, listener_cancel);
++  auto reset = [&] {
++    listener_change->ClearInvoked();
++    listener_cancel->ClearInvoked();
++  };
++
++  auto* const selection_1 = MakeGarbageCollected<FileList>();
++  selection_1->Append(MakeGarbageCollected<File>("/path/to/A.txt"));
++  file_input->SetFilesAndDispatchEvents(selection_1);
++  EXPECT_TRUE(listener_change->invoked);
++  EXPECT_FALSE(listener_cancel->invoked);
++
++  reset();
++  auto* const selection_2 = MakeGarbageCollected<FileList>();
++  selection_2->Append(MakeGarbageCollected<File>("/path/to/B.txt"));
++  file_input->SetFilesAndDispatchEvents(selection_2);
++  EXPECT_TRUE(listener_change->invoked);
++  EXPECT_FALSE(listener_cancel->invoked);
++}
++
++// Tests selecting different files after first selection should fire change
++// event.
++TEST(FileInputTypeTest, SetFilesFireCorrectEventsForDifferentFiles) {
++  ScopedNullExecutionContext execution_context;
++
++  auto* document =
++      Document::CreateForTest(execution_context.GetExecutionContext());
++  auto* input =
++      MakeGarbageCollected<HTMLInputElement>(*document, CreateElementFlags());
++  InputType* file_input = MakeGarbageCollected<FileInputType>(*input);
++  auto* listener_change = MakeGarbageCollected<MockEventListener>();
++  auto* listener_cancel = MakeGarbageCollected<MockEventListener>();
++  input->addEventListener(event_type_names::kChange, listener_change);
++  input->addEventListener(event_type_names::kCancel, listener_cancel);
++  input->SetBooleanAttribute(html_names::kMultipleAttr, true);
++  auto reset = [&] {
++    listener_change->ClearInvoked();
++    listener_cancel->ClearInvoked();
++  };
++
++  auto* const selection_1 = MakeGarbageCollected<FileList>();
++  selection_1->Append(MakeGarbageCollected<File>("/path/to/A.txt"));
++  selection_1->Append(MakeGarbageCollected<File>("/path/to/B.txt"));
++  file_input->SetFilesAndDispatchEvents(selection_1);
++  EXPECT_TRUE(listener_change->invoked);
++  EXPECT_FALSE(listener_cancel->invoked);
++
++  reset();
++  auto* const selection_2 = MakeGarbageCollected<FileList>();
++  selection_2->Append(MakeGarbageCollected<File>("/path/to/A.txt"));
++  file_input->SetFilesAndDispatchEvents(selection_2);
++  EXPECT_TRUE(listener_change->invoked);
++  EXPECT_FALSE(listener_cancel->invoked);
++}
++
++// Tests clearing selection (click cancel in file chooser) after selection
++// should fire change event.
++TEST(FileInputTypeTest, SetFilesFireCorrectEventsCancelWithSelection) {
++  ScopedNullExecutionContext execution_context;
++
++  auto* document =
++      Document::CreateForTest(execution_context.GetExecutionContext());
++  auto* input =
++      MakeGarbageCollected<HTMLInputElement>(*document, CreateElementFlags());
++  InputType* file_input = MakeGarbageCollected<FileInputType>(*input);
++  auto* listener_change = MakeGarbageCollected<MockEventListener>();
++  auto* listener_cancel = MakeGarbageCollected<MockEventListener>();
++  input->addEventListener(event_type_names::kChange, listener_change);
++  input->addEventListener(event_type_names::kCancel, listener_cancel);
++  input->SetBooleanAttribute(html_names::kMultipleAttr, true);
++  auto reset = [&] {
++    listener_change->ClearInvoked();
++    listener_cancel->ClearInvoked();
++  };
++
++  auto* const selection_1 = MakeGarbageCollected<FileList>();
++  selection_1->Append(MakeGarbageCollected<File>("/path/to/A.txt"));
++  selection_1->Append(MakeGarbageCollected<File>("/path/to/B.txt"));
++  file_input->SetFilesAndDispatchEvents(selection_1);
++  EXPECT_TRUE(listener_change->invoked);
++  EXPECT_FALSE(listener_cancel->invoked);
++
++  reset();
++  auto* const selection_2 = MakeGarbageCollected<FileList>();
++  file_input->SetFilesAndDispatchEvents(selection_2);
++  EXPECT_TRUE(listener_change->invoked);
++  EXPECT_FALSE(listener_cancel->invoked);
++}
++
++// Tests clearing selection (click cancel in file chooser) without selection
++// should fire cancel event.
++TEST(FileInputTypeTest, SetFilesFireCorrectEventsCancelWithoutSelection) {
++  ScopedNullExecutionContext execution_context;
++
++  auto* document =
++      Document::CreateForTest(execution_context.GetExecutionContext());
++  auto* input =
++      MakeGarbageCollected<HTMLInputElement>(*document, CreateElementFlags());
++  InputType* file_input = MakeGarbageCollected<FileInputType>(*input);
++  auto* listener_change = MakeGarbageCollected<MockEventListener>();
++  auto* listener_cancel = MakeGarbageCollected<MockEventListener>();
++  input->addEventListener(event_type_names::kChange, listener_change);
++  input->addEventListener(event_type_names::kCancel, listener_cancel);
++  input->SetBooleanAttribute(html_names::kMultipleAttr, true);
++
++  auto* const selection = MakeGarbageCollected<FileList>();
++  file_input->SetFilesAndDispatchEvents(selection);
++  EXPECT_FALSE(listener_change->invoked);
++  EXPECT_TRUE(listener_cancel->invoked);
++}
++
+ }  // namespace blink
+diff --git a/third_party/blink/renderer/core/html/forms/html_form_control_element_with_state.cc b/third_party/blink/renderer/core/html/forms/html_form_control_element_with_state.cc
+index da908871356bf8aba9631f62a21f4f4780b24125..e5ea04918d8e82ba068a33194eb961e0dd087d7a 100644
+--- a/third_party/blink/renderer/core/html/forms/html_form_control_element_with_state.cc
++++ b/third_party/blink/renderer/core/html/forms/html_form_control_element_with_state.cc
+@@ -334,6 +334,10 @@ void HTMLFormControlElementWithState::DispatchChangeEvent() {
+   DispatchScopedEvent(*Event::CreateBubble(event_type_names::kChange));
+ }
+ 
++void HTMLFormControlElementWithState::DispatchCancelEvent() {
++  DispatchScopedEvent(*Event::CreateBubble(event_type_names::kCancel));
++}
++
+ void HTMLFormControlElementWithState::FinishParsingChildren() {
+   HTMLFormControlElement::FinishParsingChildren();
+   ListedElement::TakeStateAndRestore();
+diff --git a/third_party/blink/renderer/core/html/forms/html_form_control_element_with_state.h b/third_party/blink/renderer/core/html/forms/html_form_control_element_with_state.h
+index 5833de4f62ec0208f932882d94523a975fa6a79c..d4b213c831dea66e53b91f310c3ebed3f8aa6aa7 100644
+--- a/third_party/blink/renderer/core/html/forms/html_form_control_element_with_state.h
++++ b/third_party/blink/renderer/core/html/forms/html_form_control_element_with_state.h
+@@ -56,6 +56,7 @@ class CORE_EXPORT HTMLFormControlElementWithState
+ 
+   void DispatchInputEvent();
+   void DispatchChangeEvent();
++  void DispatchCancelEvent();
+ 
+  protected:
+   bool user_has_edited_the_field_ = false;
