@@ -1,0 +1,151 @@
+From 789280a45ba6632022f8aad510ee45bca6f80305 Mon Sep 17 00:00:00 2001
+From: Xiaocheng Hu <xiaochengh@chromium.org>
+Date: Tue, 29 Aug 2023 16:55:57 +0000
+Subject: [PATCH] Capture JS-made DOM changes in cold mode checker
+
+JS text editors can intercept editing-related events and make changes
+on DOM directly instead of using native editing commands. Such changes
+are not currently captured by spellchecker, and hence leaving text
+unchecked.
+
+This patch makes cold mode checker slightly more aggressive by doing
+at least a local recheck if DOM changes (from any source) are detected.
+
+Fixed: 1472542
+Change-Id: I9adbbedd644672286a78cc4b056bf7b02a97ca8e
+Reviewed-on: https://chromium-review.googlesource.com/c/chromium/src/+/4819913
+Reviewed-by: Kent Tamura <tkent@chromium.org>
+Commit-Queue: Xiaocheng Hu <xiaochengh@chromium.org>
+Cr-Commit-Position: refs/heads/main@{#1189578}
+---
+ .../cold_mode_spell_check_requester.cc        | 22 ++++---
+ .../cold_mode_spell_check_requester.h         |  1 +
+ .../cold_mode_recheck_dom_changes.html        | 60 +++++++++++++++++++
+ 3 files changed, 76 insertions(+), 7 deletions(-)
+ create mode 100644 third_party/blink/web_tests/editing/spelling/cold_mode_recheck_dom_changes.html
+
+diff --git a/third_party/blink/renderer/core/editing/spellcheck/cold_mode_spell_check_requester.cc b/third_party/blink/renderer/core/editing/spellcheck/cold_mode_spell_check_requester.cc
+index bd6df4d8300c7..999ea90b8a4bb 100644
+--- a/third_party/blink/renderer/core/editing/spellcheck/cold_mode_spell_check_requester.cc
++++ b/third_party/blink/renderer/core/editing/spellcheck/cold_mode_spell_check_requester.cc
+@@ -150,8 +150,9 @@ void ColdModeSpellCheckRequester::SetHasFullyCheckedCurrentRootEditable() {
+   DCHECK(!fully_checked_root_editables_.Contains(root_editable_));
+ 
+   fully_checked_root_editables_.Set(
+-      root_editable_,
+-      FullyCheckedEditableEntry{TotalTextLength(*root_editable_), 0});
++      root_editable_, FullyCheckedEditableEntry{
++                          TotalTextLength(*root_editable_), 0,
++                          root_editable_->GetDocument().DomTreeVersion()});
+   last_chunk_index_ = kInvalidChunkIndex;
+   if (!remaining_check_range_)
+     return;
+@@ -204,15 +205,22 @@ ColdModeSpellCheckRequester::AccumulateTextDeltaAndComputeCheckingType(
+   if (iter == fully_checked_root_editables_.end())
+     return CheckingType::kFull;
+ 
++  uint64_t dom_tree_version = element_to_check.GetDocument().DomTreeVersion();
++
++  // Nothing to check, because nothing has changed.
++  if (dom_tree_version == iter->value.previous_checked_dom_tree_version) {
++    return CheckingType::kNone;
++  }
++  iter->value.previous_checked_dom_tree_version =
++      element_to_check.GetDocument().DomTreeVersion();
++
++  // Compute the amount of text change heuristically. Invoke a full check if
++  // the accumulated change is above a threshold; or a local check otherwise.
++
+   int current_text_length = TotalTextLength(element_to_check);
+   int delta =
+       std::abs(current_text_length - iter->value.previous_checked_length);
+ 
+-  // Cold mode checking is not needed without plain text change (for example,
+-  // after moving caret, changing text style, etc).
+-  if (!delta)
+-    return CheckingType::kNone;
+-
+   iter->value.accumulated_delta += delta;
+   iter->value.previous_checked_length = current_text_length;
+ 
+diff --git a/third_party/blink/renderer/core/editing/spellcheck/cold_mode_spell_check_requester.h b/third_party/blink/renderer/core/editing/spellcheck/cold_mode_spell_check_requester.h
+index 30a790d1bf9e2..82e2819bfdd03 100644
+--- a/third_party/blink/renderer/core/editing/spellcheck/cold_mode_spell_check_requester.h
++++ b/third_party/blink/renderer/core/editing/spellcheck/cold_mode_spell_check_requester.h
+@@ -91,6 +91,7 @@ class ColdModeSpellCheckRequester
+   struct FullyCheckedEditableEntry {
+     int previous_checked_length = 0;
+     int accumulated_delta = 0;
++    uint64_t previous_checked_dom_tree_version = 0u;
+   };
+   HeapHashMap<Member<const Element>, FullyCheckedEditableEntry>
+       fully_checked_root_editables_;
+diff --git a/third_party/blink/web_tests/editing/spelling/cold_mode_recheck_dom_changes.html b/third_party/blink/web_tests/editing/spelling/cold_mode_recheck_dom_changes.html
+new file mode 100644
+index 0000000000000..2e23b80129769
+--- /dev/null
++++ b/third_party/blink/web_tests/editing/spelling/cold_mode_recheck_dom_changes.html
+@@ -0,0 +1,60 @@
++<!DOCTYPE html>
++<title>Tests that direct DOM changes are rechecked by cold mode checker</title>
++<script src="../../resources/testharness.js"></script>
++<script src="../../resources/testharnessreport.js"></script>
++<script src="../assert_selection.js"></script>
++<script src="spellcheck_test.js"></script>
++
++<script>
++// Regression test for https://crbug.com/1472542
++
++const step1 = () => spellcheck_test(
++    `<div contenteditable>zz zz zz.</div>`,
++    document => {
++      let div = document.querySelector('div[contenteditable]');
++      div.focus();
++    },
++    `<div contenteditable>#zz# #zz# #zz#.</div>`,
++    {
++      title: 'Step 1: Cold mode checks full contenteditable for the first pass',
++      needsFullCheck: true,
++      callback: step2,
++    }
++);
++
++const step2 = sample => spellcheck_test(
++    sample,
++    document => {
++      let div = document.querySelector('div[contenteditable]');
++      document.getSelection().collapse(div.firstChild, 7);
++    },
++    `<div contenteditable>#zz# #zz# #zz#.</div>`,
++    {
++      title: 'Step 2: Move caret under misspelled word',
++      needsFullCheck: true,
++      callback: step3,
++    }
++);
++
++const step3 = sample => spellcheck_test(
++    sample,
++    document => {
++      let div = document.querySelector('div[contenteditable]');
++      // Similates a JavaScript text editor that intercepts spelling corrections
++      // and applies them by replacing the text node entirely.
++      div.addEventListener('beforeinput', ev => {
++        ev.preventDefault();
++        div.firstChild.remove();
++        div.appendChild(document.createTextNode('zz zz so good.'));
++      });
++      internals.replaceMisspelled(document, 'good');
++    },
++    `<div contenteditable>#zz# #zz# so good.</div>`,
++    {
++      title: 'Step 3: Cold mode rechecks after DOM changes made by JavaScript',
++      needsFullCheck: true
++    }
++);
++
++step1();
++</script>
+-- 
+2.41.0.windows.1
+
