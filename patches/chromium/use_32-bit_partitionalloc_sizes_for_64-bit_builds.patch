@@ -1,0 +1,20 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mark Harmer <mark.harmer@discordapp.com>
+Date: Wed, 4 Oct 2023 22:01:26 -0700
+Subject: Use 32-bit PartitionAlloc sizes for 64-bit builds
+
+
+diff --git a/base/allocator/partition_allocator/src/partition_alloc/partition_alloc_constants.h b/base/allocator/partition_allocator/src/partition_alloc/partition_alloc_constants.h
+index cddebf7f8ef7edd3f063567b08388445dd5c516d..54d1a81473bd77b32e10c920fa2ac871814fa3ef 100644
+--- a/base/allocator/partition_allocator/src/partition_alloc/partition_alloc_constants.h
++++ b/base/allocator/partition_allocator/src/partition_alloc/partition_alloc_constants.h
+@@ -311,6 +311,9 @@ constexpr size_t kNumPools = kMaxPoolHandle - 1;
+ #if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS) || \
+     BUILDFLAG(ENABLE_POINTER_COMPRESSION)
+ constexpr size_t kPoolMaxSize = 8 * kGiB;
++#elif BUILDFLAG(IS_WIN)
++// Limit size for Windows 64-bit builds to 4GB
++constexpr size_t kPoolMaxSize = 4 * kGiB;
+ #else
+ constexpr size_t kPoolMaxSize = 16 * kGiB;
+ #endif
