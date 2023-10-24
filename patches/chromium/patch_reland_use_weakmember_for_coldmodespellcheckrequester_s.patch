@@ -1,0 +1,109 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xiaocheng Hu <xiaochengh@chromium.org>
+Date: Mon, 30 Jan 2023 21:16:23 +0000
+Subject: Reland "Use WeakMember for ColdModeSpellCheckRequester's fully
+ checked elements"
+
+This reverts commit b7b78ff5be78130f3cbda76638781138a888ac7e.
+
+Reason for revert: The number of live nodes seems not always the same.
+Added more leeway to deflake it.
+
+Original change's description:
+> Revert "Use WeakMember for ColdModeSpellCheckRequester's fully checked elements"
+>
+> This reverts commit 204c3e4667b174e8ed47e3acb74be24d0779bbe9.
+>
+> Reason for revert: test failing on mac https://ci.chromium.org/ui/p/chromium/builders/ci/Mac12%20Tests/6234/
+>
+> Original change's description:
+> > Use WeakMember for ColdModeSpellCheckRequester's fully checked elements
+> >
+> > ColdModeSpellCheckRequester maintains a map of fully checked elements
+> > with strong Member references, and therefore keeps them alive even if
+> > they are already removed from the document, which is memory leak.
+> >
+> > This patch fixes the leak by maintaining them with weak references.
+> >
+> > Fixed: 1410394
+> > Change-Id: I411ecb156d0bcd9c06dd0ea4eeef6d6488f36885
+> > Reviewed-on: https://chromium-review.googlesource.com/c/chromium/src/+/4201214
+> > Auto-Submit: Xiaocheng Hu <xiaochengh@chromium.org>
+> > Reviewed-by: Yoshifumi Inoue <yosin@chromium.org>
+> > Commit-Queue: Yoshifumi Inoue <yosin@chromium.org>
+> > Cr-Commit-Position: refs/heads/main@{#1098440}
+>
+> Change-Id: Ice9b910a28eb74cd6b3bf47fdd7ad547f8ebacfa
+> No-Presubmit: true
+> No-Tree-Checks: true
+> No-Try: true
+> Reviewed-on: https://chromium-review.googlesource.com/c/chromium/src/+/4203569
+> Auto-Submit: Phillis Tang <phillis@chromium.org>
+> Bot-Commit: Rubber Stamper <rubber-stamper@appspot.gserviceaccount.com>
+> Commit-Queue: Phillis Tang <phillis@chromium.org>
+> Owners-Override: Phillis Tang <phillis@chromium.org>
+> Cr-Commit-Position: refs/heads/main@{#1098648}
+
+Change-Id: I2facc20d74c8885ae94be34708219538b4d34bbe
+Reviewed-on: https://chromium-review.googlesource.com/c/chromium/src/+/4205011
+Auto-Submit: Xiaocheng Hu <xiaochengh@chromium.org>
+Commit-Queue: Phillis Tang <phillis@chromium.org>
+Commit-Queue: Xiaocheng Hu <xiaochengh@chromium.org>
+Reviewed-by: Phillis Tang <phillis@chromium.org>
+Cr-Commit-Position: refs/heads/main@{#1098860}
+
+diff --git a/third_party/blink/renderer/core/editing/spellcheck/cold_mode_spell_check_requester.h b/third_party/blink/renderer/core/editing/spellcheck/cold_mode_spell_check_requester.h
+index 82e2819bfdd03ccd91762f74bd7fcf4e151e12e0..795c9243a9d5ff2baa338b946bb5eec4404c6f65 100644
+--- a/third_party/blink/renderer/core/editing/spellcheck/cold_mode_spell_check_requester.h
++++ b/third_party/blink/renderer/core/editing/spellcheck/cold_mode_spell_check_requester.h
+@@ -93,7 +93,7 @@ class ColdModeSpellCheckRequester
+     int accumulated_delta = 0;
+     uint64_t previous_checked_dom_tree_version = 0u;
+   };
+-  HeapHashMap<Member<const Element>, FullyCheckedEditableEntry>
++  HeapHashMap<WeakMember<const Element>, FullyCheckedEditableEntry>
+       fully_checked_root_editables_;
+ 
+   // A test-only flag for forcing lifecycle advancing.
+diff --git a/third_party/blink/web_tests/editing/spelling/cold_mode_no_leak_detached_node.html b/third_party/blink/web_tests/editing/spelling/cold_mode_no_leak_detached_node.html
+new file mode 100644
+index 0000000000000000000000000000000000000000..25c7aa354e8c157764a0c101026d8fe3ad35732a
+--- /dev/null
++++ b/third_party/blink/web_tests/editing/spelling/cold_mode_no_leak_detached_node.html
+@@ -0,0 +1,36 @@
++<!doctype html>
++<title>Spellchecker should not keep an unbounded number of detached nodes alive</title>
++<script src="../../resources/testharness.js"></script>
++<script src="../../resources/testharnessreport.js"></script>
++<body>
++<script>
++// Spins spellchecker until idle. Return whether it's actually run.
++function spinSpellChecker() {
++  let spellCheckerIsRun = false;
++  while (internals.idleTimeSpellCheckerState(document) !== 'Inactive') {
++    internals.runIdleTimeSpellChecker(document);
++    spellCheckerIsRun = true;
++  }
++  return spellCheckerIsRun;
++}
++
++test(() => {
++  const n = 100;
++  const numLiveNodesBefore = internals.numberOfLiveNodes();
++
++  for (let i = 0; i < n; ++i) {
++    {
++      let input = document.createElement('input');
++      document.body.appendChild(input);
++      input.focus();
++      assert_true(spinSpellChecker(), 'spellchecker is run');
++      input.remove();
++    }
++    gc();
++  }
++
++  const numLiveNodesAfter = internals.numberOfLiveNodes();
++  assert_less_than_equal(numLiveNodesAfter, numLiveNodesBefore + 20);
++});
++</script>
++</body>
