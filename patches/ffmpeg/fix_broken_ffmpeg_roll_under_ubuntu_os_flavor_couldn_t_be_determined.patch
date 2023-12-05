@@ -1,0 +1,77 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mark Harmer <mark.harmer@discordapp.com>
+Date: Tue, 5 Dec 2023 12:05:46 -0800
+Subject: Fix broken ffmpeg roll under ubuntu.
+
+OS flavor couldn't be determined, and the ROBO_CONFIGURATION is not working.
+
+diff --git a/chromium/scripts/build_ffmpeg.py b/chromium/scripts/build_ffmpeg.py
+index b52bf66e784562fba6edf8d9dcd781e4ec7b7a1f..74f921efd010101ce05b807de6dd775ab0f22c25 100755
+--- a/chromium/scripts/build_ffmpeg.py
++++ b/chromium/scripts/build_ffmpeg.py
+@@ -20,11 +20,10 @@ import signal
+ import subprocess
+ import sys
+ import tempfile
+-from robo_lib import config
+ 
+-ROBO_CONFIGURATION = config.RoboConfiguration()
+-FFMPEG_DIR = ROBO_CONFIGURATION.ffmpeg_home()
+-CHROMIUM_ROOT_DIR = ROBO_CONFIGURATION.chrome_src()
++SCRIPTS_DIR = os.path.abspath(os.path.dirname(__file__))
++FFMPEG_DIR = os.path.abspath(os.path.join(SCRIPTS_DIR, '..', '..'))
++CHROMIUM_ROOT_DIR = os.path.abspath(os.path.join(FFMPEG_DIR, '..', '..'))
+ NDK_ROOT_DIR = os.path.abspath(
+     os.path.join(CHROMIUM_ROOT_DIR, 'third_party', 'android_toolchain', 'ndk'))
+ # Token to indicate that a build has completed successfully, so that we can
+@@ -541,7 +540,7 @@ def BuildFFmpeg(target_os, target_arch, host_os, host_arch, parallel_jobs,
+   if target_os == 'mac' and host_os == 'linux':
+     RewriteFile(
+         os.path.join(config_dir, 'ffbuild/config.mak'), [(r'LD=ld64.lld',
+-        r'LD=' + ROBO_CONFIGURATION.get_script_path('fake_linker.py'))])
++        r'LD=' + os.path.abspath(os.path.join(SCRIPTS_DIR, 'fake_linker.py')))])
+ 
+   # The FFMPEG roll build hits a bug in lld-link that does not impact the
+   # overall Chromium build.
+@@ -549,7 +548,7 @@ def BuildFFmpeg(target_os, target_arch, host_os, host_arch, parallel_jobs,
+   if target_os == 'win' and target_arch == 'arm64' and host_os == 'linux':
+     RewriteFile(
+         os.path.join(config_dir, 'ffbuild/config.mak'), [(r'LD=lld-link',
+-        r'LD=' + ROBO_CONFIGURATION.get_script_path('fake_linker.py'))])
++        r'LD=' + os.path.abspath(os.path.join(SCRIPTS_DIR, 'fake_linker.py')))])
+ 
+   if target_os in (host_os, host_os + '-noasm', 'android',
+                    'win', 'mac') and not config_only:
+diff --git a/chromium/scripts/generate_gn.py b/chromium/scripts/generate_gn.py
+index 5c71dd01581791d51a281ffc345d53ae8e007c26..7027d0ac5491c7e358baf4cbf5790b4b31618711 100755
+--- a/chromium/scripts/generate_gn.py
++++ b/chromium/scripts/generate_gn.py
+@@ -36,10 +36,6 @@ import re
+ import shutil
+ import subprocess
+ import sys
+-from robo_lib import config
+-
+-# The test wrapper doesn't appreciate the status messages.
+-ROBO_CONFIGURATION = config.RoboConfiguration(quiet=True)
+ 
+ COPYRIGHT = """# Copyright %d The Chromium Authors. All rights reserved.
+ # Use of this source code is governed by a BSD-style license that can be
+@@ -578,7 +574,7 @@ def ParseOptions():
+       '-s',
+       '--source_dir',
+       dest='source_dir',
+-      default=ROBO_CONFIGURATION.ffmpeg_home(),
++      default='.',
+       metavar='DIR',
+       help='FFmpeg source directory.')
+ 
+@@ -586,7 +582,7 @@ def ParseOptions():
+       '-b',
+       '--build_dir',
+       dest='build_dir',
+-      default=ROBO_CONFIGURATION.ffmpeg_home(),
++      default='.',
+       metavar='DIR',
+       help='Build root containing build.x64.linux, etc...')
+ 
