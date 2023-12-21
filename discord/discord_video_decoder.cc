@@ -81,8 +81,9 @@ class DiscordVideoDecoderMediaThread {
   void OnOutput(scoped_refptr<::media::VideoFrame> frame);
 
   ElectronPointer<IElectronVideoFormat> format_;
-  void* user_data_;
-  ::media::GpuVideoAcceleratorFactories* gpu_factories_{};
+  DISCORD_RAW_PTR_EXCLUSION void* user_data_;
+  DISCORD_RAW_PTR_EXCLUSION ::media::GpuVideoAcceleratorFactories*
+      gpu_factories_{};
   std::unique_ptr<::media::MediaLog> media_log_;
   std::unique_ptr<::media::VideoDecoder> video_decoder_;
   scoped_refptr<base::SequencedTaskRunner> media_task_runner_;
@@ -260,11 +261,13 @@ void DiscordVideoDecoderMediaThread::DecodeOnMediaThread() {
   }
 }
 
-void DiscordVideoDecoderMediaThread::OnDecodeDone(::media::DecoderStatus status) {
+void DiscordVideoDecoderMediaThread::OnDecodeDone(
+    ::media::DecoderStatus status) {
   DCHECK(media_task_runner_->RunsTasksInCurrentSequence());
   outstanding_decode_requests_--;
 
-  if (!status.is_ok() && status.code() != ::media::DecoderStatus::Codes::kAborted) {
+  if (!status.is_ok() &&
+      status.code() != ::media::DecoderStatus::Codes::kAborted) {
     base::AutoLock auto_lock(lock_);
 
     has_error_ = true;
