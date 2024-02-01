@@ -1,0 +1,21 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Thomas Finch <thomas.finch@discordapp.com>
+Date: Thu, 1 Feb 2024 09:33:02 -0800
+Subject: fix: page visibility with background throttling disabled
+
+Allow page visibility API to work while background throttling is disabled
+
+diff --git a/content/browser/renderer_host/render_widget_host_impl.cc b/content/browser/renderer_host/render_widget_host_impl.cc
+index a89d71989be659960b36bf407e23080c5f1022d9..bebb5eace238b19abe8d027e3d49ba31c3a7038e 100644
+--- a/content/browser/renderer_host/render_widget_host_impl.cc
++++ b/content/browser/renderer_host/render_widget_host_impl.cc
+@@ -818,9 +818,6 @@ void RenderWidgetHostImpl::WasHidden() {
+     return;
+   }
+ 
+-  if (disable_hidden_)
+-    return;
+-
+   RejectMouseLockOrUnlockIfNecessary(
+       blink::mojom::PointerLockResult::kWrongDocument);
+ 
