@@ -1,0 +1,43 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: shaochenguang <chenguangshao1@gmail.com>
+Date: Mon, 5 Feb 2024 21:09:24 +0000
+Subject: Fix viz::TransitionUtils::RenderPassListToString Crash.
+
+the quad_list in CompositorRenderPass can be empty, so when processing
+the quad_list in ProcessStack, it is necessary to perform a null check
+on the iterator.
+
+Bug: 1524337,1470566
+Change-Id: I337732dd3dacbffbbe154b122edb497cd397da8d
+Reviewed-on: https://chromium-review.googlesource.com/c/chromium/src/+/5261583
+Reviewed-by: Vladimir Levin <vmpstr@chromium.org>
+Commit-Queue: Vladimir Levin <vmpstr@chromium.org>
+Cr-Commit-Position: refs/heads/main@{#1256403}
+
+diff --git a/components/viz/common/transition_utils.cc b/components/viz/common/transition_utils.cc
+index 3d46bf862db5edb2b5ea257e9226b43f5f65b908..27057c6b9756bced3fd2500c976ffe3f005c4400 100644
+--- a/components/viz/common/transition_utils.cc
++++ b/components/viz/common/transition_utils.cc
+@@ -105,7 +105,10 @@ std::unordered_set<uint64_t> ProcessStack(
+         stack.pop_back();
+         continue;
+       }
+-
++      if (!*frame.quad_iter) {
++        stack.pop_back();
++        continue;
++      }
+       frame.indent += 2;
+     } else {
+       if (++frame.quad_iter == pass->quad_list.end()) {
+@@ -174,8 +177,8 @@ std::string TransitionUtils::RenderPassListToString(
+     const CompositorRenderPassList& list) {
+   std::ostringstream str;
+ 
+-  if (list.size() > kMaxListToProcess) {
+-    str << "RenderPassList too large (" << list.size()
++  if (list.size() > kMaxListToProcess || list.empty()) {
++    str << "RenderPassList too large or too small (" << list.size()
+         << "), max supported list length " << kMaxListToProcess;
+     return str.str();
+   }
