@@ -1,0 +1,37 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Chris Davis (EDGE)" <chrdavis@microsoft.com>
+Date: Tue, 23 Jan 2024 17:39:23 +0000
+Subject: Revert "Mark windows as occluded if root window is hidden."
+
+Revert a recent change to MaybeComputeOcclusion which resulted in the
+browser getting stuck in a hidden/occluded state after restart.
+
+Reason for revert: breaks some occlusion scenarios
+
+Bug: 1520596
+Change-Id: Iaf6ad8d8eba1b2684bb34072e926083068959aa9
+Reviewed-on: https://chromium-review.googlesource.com/c/chromium/src/+/5225250
+Reviewed-by: Francois Pierre Doray <fdoray@chromium.org>
+Reviewed-by: David Bienvenu <davidbienvenu@chromium.org>
+Commit-Queue: Chris Davis <chrdavis@microsoft.com>
+Cr-Commit-Position: refs/heads/main@{#1250908}
+
+diff --git a/ui/aura/window_occlusion_tracker.cc b/ui/aura/window_occlusion_tracker.cc
+index f9d12ec6b81af40a7c87ffbb82c6a0a3ab6a08de..5120a6d0e0b63b56331f1b55f4bc96642834059a 100644
+--- a/ui/aura/window_occlusion_tracker.cc
++++ b/ui/aura/window_occlusion_tracker.cc
+@@ -305,11 +305,14 @@ void WindowOcclusionTracker::MaybeComputeOcclusion() {
+               Window::OcclusionState::OCCLUDED) {
+             SetWindowAndDescendantsAreOccluded(
+                 root_window, /* is_occluded */ true, root_window->IsVisible());
++// TODO(crbug.com/1429517): Enable for other platforms in a separate CL.
++#if BUILDFLAG(IS_CHROMEOS)
+           } else if (root_window_pair.second.occlusion_state ==
+                      Window::OcclusionState::HIDDEN) {
+             SetWindowAndDescendantsAreOccluded(root_window,
+                                                /* is_occluded */ false,
+                                                /* is_parent_visible */ false);
++#endif
+           } else {
+             SkRegion occluded_region = root_window_pair.second.occluded_region;
+             RecomputeOcclusionImpl(root_window, gfx::Transform(), nullptr,
