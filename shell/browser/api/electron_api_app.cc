@@ -1350,6 +1350,9 @@ std::vector<gin_helper::Dictionary> App::GetAppMetrics(v8::Isolate* isolate) {
         "percentCPUUsage",
         process_metric.second->metrics->GetPlatformIndependentCPUUsage() /
             processor_count);
+    cpu_dict.Set(
+        "cumulativeCPUUsage",
+        process_metric.second->metrics->GetCumulativeCPUUsage().InSecondsF());
 
 #if !BUILDFLAG(IS_WIN)
     cpu_dict.Set("idleWakeupsPerSecond",

@@ -281,6 +281,7 @@ v8::Local<v8::Value> ElectronBindings::GetCPUUsage(
   int processor_count = base::SysInfo::NumberOfProcessors();
   dict.Set("percentCPUUsage",
            metrics->GetPlatformIndependentCPUUsage() / processor_count);
+  dict.Set("cumulativeCPUUsage", metrics->GetCumulativeCPUUsage().InSecondsF());
 
   // NB: This will throw NOTIMPLEMENTED() on Windows
   // For backwards compatibility, we'll return 0
