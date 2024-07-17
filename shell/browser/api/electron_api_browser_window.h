@@ -91,7 +91,6 @@ class BrowserWindow : public BaseWindow,
   base::CancelableRepeatingClosure window_unresponsive_closure_;
 
   v8::Global<v8::Value> web_contents_;
-  v8::Global<v8::Value> web_contents_view_;
   base::WeakPtr<api::WebContents> api_web_contents_;
 
   base::WeakPtrFactory<BrowserWindow> weak_factory_{this};
