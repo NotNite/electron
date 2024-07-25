@@ -1,0 +1,22 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mark Harmer <mark.harmer@discordap.com>
+Date: Wed, 24 Jul 2024 22:20:55 -0700
+Subject: fix: fix unknown case with a double-call to OnRefreshComplete
+
+
+diff --git a/chrome/browser/media/webrtc/desktop_media_list_base.cc b/chrome/browser/media/webrtc/desktop_media_list_base.cc
+index d19b1cc9dedf839f12f4113db64293e5c8150f51..065a563af35ea8d422dd2acc08b0deef13b1b4bc 100644
+--- a/chrome/browser/media/webrtc/desktop_media_list_base.cc
++++ b/chrome/browser/media/webrtc/desktop_media_list_base.cc
+@@ -233,7 +233,10 @@ void DesktopMediaListBase::OnRefreshComplete() {
+   if (skip_next_refresh_ > 0) {
+     skip_next_refresh_--;
+   } else {
+-    std::move(refresh_callback_).Run();
++    // Hack: Avoid calling if the callback is null in rare cases
++    if (!refresh_callback_.is_null()) {
++      std::move(refresh_callback_).Run();
++    }
+   }
+ }
+ 
